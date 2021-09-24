@@ -1,11 +1,13 @@
 from os.path import exists
 
+
 # Returns a string from the combined elements in a list
-def flatten(list):
+def flatten(list, seperator = ""):
     returnString = ''
     for string in list:
-        returnString += string + '/'
+        returnString += string + seperator
     return returnString
+
 
 # Returns the line up to the semi-colon
 def getLine(line):
@@ -24,23 +26,26 @@ def getLine(line):
     
     return command
 
+
 # Returns a new file path with the extension passed in
 def getNewFilePath(filePath, extension):
     splitFile = filePath.split('/')
-    folderPath = flatten(splitFile[:-1]) # TODO: check length before taking off extension?
+    folderPath = flatten(splitFile[:-1], '/') # TODO: check length before taking off extension?
     return folderPath + splitFile[-1].split('.')[0] + extension
+
 
 # Logs the error in xxx.err and in the console
 def logError(errorString, filePath, lineNumber):
-    # Output and errors to xxx.err and stop program # Always create even if empty # Only create one file (xxx.err) if we cannot determine input program name
-    # Use program name to create output files
-    # Errors print to xxx.err and say something like 'Error: There was as error on line x'
-        # Printing error to console would be nice too
-        # If error is produced ignore anything in xxx.asm file
     errorString += "ERROR: Line " + lineNumber + " - " + errorString
+
+    # Printing error to console would be nice too
     print(errorString)
+    
+    # Errors print to xxx.err and say something like 'Error: There was as error on line x'
+        # If error is produced ignore anything in xxx.asm file
     file = open(getNewFilePath(filePath, '.err'), 'w')
     file.write(errorString)
+
 
 # Checks to see if passed string is a keyword for the language
 def isKeyword(inputString):
@@ -48,13 +53,36 @@ def isKeyword(inputString):
 
     for keyword in keywords:
         if inputString == keyword:
-            raise SyntaxError(inputString + " is a reserved keyword. Please use something else.")
+            return True
+    
+    return False
+
+
+# Checks the line for a math operand passed in and preforms correct logic, including call math recursively
+def mathCheckLine(operand, symbolTable, line):
+    lineSplit = line.split(operand)
+    if len(lineSplit) > 1:
+        # TODO: Generate asm for first two operands, then preform math on the rest
+        #math(symbolTable, flatten())
+    
+    # TODO: return asm equivelent
+    # read any values from memory needed # Use math() again for this
+    # preform math operation
+    # save value of register into memory address
+
 
 # Symbol Table # Get variable name and value; Store into symbol table; throw error if variable name is invalid
-def saveVarIntoTable(symbolTable, line, varType = "num "):
+def saveVarIntoTable(symbolTable, line, varType = ""):
+    # Check if variable is being initialized
+    isInit = (varType not in symbolTable) and (varType == 'num ')
+
     # Parse line for command
     line = getLine(line)
-    line = line.replace(varType, "") # TODO: check type
+
+    # If initializing, then remove varType at beginning of line
+    if isInit:
+        line = line.replace(varType, "")
+
     line = line.replace(" ", "")
     lineSplit = line.split("=")
 
@@ -64,49 +92,80 @@ def saveVarIntoTable(symbolTable, line, varType = "num "):
     if varType == "num ":
         varValue = math(symbolTable, line) if len(lineSplit) > 1 else 0 
 
-    # TODO: add for initial math # Maybe with suto call for math if there is an equal but it will return if only one part
+    # No variable name is same as a keyword
+    if isKeyword(varName):
+        raise SyntaxError(inputString + " is a reserved keyword. Please use something else.")
 
-    # No two vars use same name
-    if varName in symbolTable:
+    # No two vars initialized use same name
+    elif isInit and varName in symbolTable:
         raise SyntaxError(varName + ' was already declared. ')
 
-    # No variable name is same as a keyword
-    elif False:
-        # TODO: check if name if not an already existing keyword
-        pass
-
     # Keep track of vars types
-    symbolTable.update({varName: varValue})
+    symbolTable.update({varName: varValue}) # TODO: Maybe change this to be the address?
 
     # TODO: return the asm equivelent
+    # read any values from memory needed
+    # preform any math operands needed
+    # save back to memory
+
+
+    # TODO: if isInit, then output extra asm in data section
     return 'save\n'
+
 
 # returns the result of an arithmetic sequence
 def math(symbolTable, line):
-    return 'math\n'
-    # Arithmetic
-        # Addition
-        # Subtraction
-        # Multiplication
-        # Exponentiation
+    # Example Input => 1+(3*1+4) => math(1 + math(math(3 * 1) + 4) )
+    # Example Input => 3*(2+3)*3 => math(3 * math (2 + 3) * 3)
+    # Example Input => 3*(2+(3-4)-2) => 3 * math(2+(3-4)-2) => 2 + math((3-4)-2) => math(3-4) - 2 => 3-4
 
-        
-    # Error is produced if var is used before it is declared
-    pass
+    # TODO: outputString for this section?
+
+    # Arithmetic - Check for highest PEMDAS operator
+    # Parenthesis - Not needed to support in this version
+
+    # Exponent
+    if '^' in line:
+        mathCheckLine('^', symbolTable, line)
+
+    # Multiplication
+    if '*' in line:
+        mathCheckLine('*', symbolTable, line)
+
+    # Division - Not needed to support in this version
+
+    # Addition
+    if '+' in line:
+        mathCheckLine('+', symbolTable, line)
+
+    # Subtraction
+    if '-' in line:
+        mathCheckLine('-', symbolTable, line)
+
+    # Default if none are found, return the value if found in symbolTable
+    if line in symbolTable:
+        # TODO: asm to put value from memory into register, then return the register with asm?
+    else:
+        # Error is produced if var is used before it is declared
+        raise SyntaxError(line + ' was not declared.')
+
+    return 'math\n'
+
 
 # Writes to console
 def write(symbolTable, line):
-    return 'write\n'
     # Write Statement
         # <EXP> part it optional
         # Write out a number
         # Write out a string
         # After each write statement is always a new line
-    pass
+    return 'write\n'
+
 
 # Accept command line arguments
 # TODO: add command line arguments
-filePath = './src/basics.txt'
+filePath = './src/basics.txt' 
+# TODO: Use program name to create output files
 outputString = ''
 symbolTable = {}
 isComment = False
@@ -169,13 +228,9 @@ try:
             # Don't need to store other types of variables for now
             # Detects 'num ' (with space) to know new var declaration
             # Save asm to output
-            elif command == 'num ':
+            elif command == 'num ' or '=' in command:
                 foundCommand = True
-                outputString += saveVarIntoTable(symbolTable, line)
-
-            elif '=' in command:
-                foundCommand = True
-                outputString += math(symbolTable, line)
+                outputString += saveVarIntoTable(symbolTable, line, command)
 
             elif command == 'write':
                 foundCommand = True
@@ -189,5 +244,6 @@ try:
     file.write(outputString)
 
 
+# Output and errors to xxx.err and stop program # Always create even if empty # Only create one file (xxx.err) if we cannot determine input program name
 except Exception as error:
     logError(repr(error), filePath, lineNumber)
