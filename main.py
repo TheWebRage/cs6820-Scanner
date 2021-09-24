@@ -7,6 +7,23 @@ def flatten(list):
         returnString += string + '/'
     return returnString
 
+# Returns the line up to the semi-colon
+def getLine(line):
+    command = ""
+
+    for char in line:
+        # Remove spaces at beginning of line
+        if char == ' ' and command == '':
+            continue
+        elif char == '\t':
+            continue
+        elif char == ';':
+            break;
+
+        command += char
+    
+    return command
+
 # Returns a new file path with the extension passed in
 def getNewFilePath(filePath, extension):
     splitFile = filePath.split('/')
@@ -14,27 +31,55 @@ def getNewFilePath(filePath, extension):
     return folderPath + splitFile[-1].split('.')[0] + extension
 
 # Logs the error in xxx.err and in the console
-def logError(errorString, filePath):
+def logError(errorString, filePath, lineNumber):
     # Output and errors to xxx.err and stop program # Always create even if empty # Only create one file (xxx.err) if we cannot determine input program name
     # Use program name to create output files
     # Errors print to xxx.err and say something like 'Error: There was as error on line x'
         # Printing error to console would be nice too
         # If error is produced ignore anything in xxx.asm file
-    errorString += "ERROR: " + errorString
+    errorString += "ERROR: Line " + lineNumber + " - " + errorString
     print(errorString)
     file = open(getNewFilePath(filePath, '.err'), 'w')
     file.write(errorString)
 
-# Get variable name and value; Store into symbol table; throw error if variable name is invalid
-def saveVarIntoTable(symbolTable, line):
-    return 'save\n'
-    # Symbol Table
-        # No two vars use same name
-        # No variable name is same as a keyword
-        # Keep track of vars types
+# Checks to see if passed string is a keyword for the language
+def isKeyword(inputString):
+    keywords = ["num", "write", "begin", "program", "end"]
 
-    # Error is produced if var is used before it is declared
-    pass # TODO: get variable name and value
+    for keyword in keywords:
+        if inputString == keyword:
+            raise SyntaxError(inputString + " is a reserved keyword. Please use something else.")
+
+# Symbol Table # Get variable name and value; Store into symbol table; throw error if variable name is invalid
+def saveVarIntoTable(symbolTable, line, varType = "num "):
+    # Parse line for command
+    line = getLine(line)
+    line = line.replace(varType, "") # TODO: check type
+    line = line.replace(" ", "")
+    lineSplit = line.split("=")
+
+    varName = lineSplit[0]
+
+    # Convert value to correct type
+    if varType == "num ":
+        varValue = math(symbolTable, line) if len(lineSplit) > 1 else 0 
+
+    # TODO: add for initial math # Maybe with suto call for math if there is an equal but it will return if only one part
+
+    # No two vars use same name
+    if varName in symbolTable:
+        raise SyntaxError(varName + ' was already declared. ')
+
+    # No variable name is same as a keyword
+    elif False:
+        # TODO: check if name if not an already existing keyword
+        pass
+
+    # Keep track of vars types
+    symbolTable.update({varName: varValue})
+
+    # TODO: return the asm equivelent
+    return 'save\n'
 
 # returns the result of an arithmetic sequence
 def math(symbolTable, line):
@@ -44,6 +89,9 @@ def math(symbolTable, line):
         # Subtraction
         # Multiplication
         # Exponentiation
+
+        
+    # Error is produced if var is used before it is declared
     pass
 
 # Writes to console
@@ -62,6 +110,7 @@ filePath = './src/basics.txt'
 outputString = ''
 symbolTable = {}
 isComment = False
+lineNumber = 0
 
 try:
     # Error is produced if file does not exist
@@ -80,6 +129,7 @@ try:
         
         command = ''
         foundCommand = False
+        lineNumber = lineNumber + 1
 
         for char in line:
 
@@ -140,4 +190,4 @@ try:
 
 
 except Exception as error:
-    logError(repr(error), filePath)
+    logError(repr(error), filePath, lineNumber)
