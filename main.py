@@ -2,9 +2,12 @@ from os.path import exists
 
 
 # Returns a string from the combined elements in a list
-def flatten(list, seperator = ""):
+def flatten(listObject, seperator = ""):
+    if not isinstance(listObject, list):
+        return listObject
+
     returnString = ''
-    for string in list:
+    for string in listObject:
         returnString += string + seperator
     return returnString
 
@@ -20,7 +23,7 @@ def getLine(line):
         elif char == '\t':
             continue
         elif char == ';':
-            break;
+            break
 
         command += char
     
@@ -36,7 +39,7 @@ def getNewFilePath(filePath, extension):
 
 # Logs the error in xxx.err and in the console
 def logError(errorString, filePath, lineNumber):
-    errorString += "ERROR: Line " + lineNumber + " - " + errorString
+    errorString += f"ERROR: Line {str(lineNumber)} - {errorString}"
 
     # Printing error to console would be nice too
     print(errorString)
@@ -58,21 +61,50 @@ def isKeyword(inputString):
     return False
 
 
+# Checks to see if the input is a digit
+def isDigit(inputString):
+    try:
+        a = int(inputString)
+        return True
+    except:
+        return False
+
+
+# Gets the asm instruction for the operand
+def operandToAsm(operand):
+    if operand == "+":
+        return 'add'
+    if operand == "-":
+        return 'sub'
+    if operand == "*":
+        return 'imul'
+    if operand == "^":
+        return 'imul' # TODO: make this a looped muli command
+
+
 # Checks the line for a math operand passed in and preforms correct logic, including call math recursively
 def mathCheckLine(operand, symbolTable, line):
+    outputString = ""
+
     lineSplit = line.split(operand)
-    if len(lineSplit) > 1:
-        # TODO: Generate asm for first two operands, then preform math on the rest
-        #math(symbolTable, flatten())
-    
-    # TODO: return asm equivelent
+
     # read any values from memory needed # Use math() again for this
+    if operand == '^':
+        outputString += math(symbolTable, lineSplit[0], 'eax') # TODO: fix exponents
+    outputString += math(symbolTable, flatten(lineSplit[1], operand), 'ebx')
+
     # preform math operation
+    outputString += f'{operandToAsm(operand)} eax, ebx\n'
+
     # save value of register into memory address
+
+    return outputString
 
 
 # Symbol Table # Get variable name and value; Store into symbol table; throw error if variable name is invalid
 def saveVarIntoTable(symbolTable, line, varType = ""):
+    outputString = ""
+
     # Check if variable is being initialized
     isInit = (varType not in symbolTable) and (varType == 'num ')
 
@@ -83,83 +115,110 @@ def saveVarIntoTable(symbolTable, line, varType = ""):
     if isInit:
         line = line.replace(varType, "")
 
+    # TODO: maybe save varType from symbolTable?
+
     line = line.replace(" ", "")
     lineSplit = line.split("=")
 
     varName = lineSplit[0]
 
-    # Convert value to correct type
-    if varType == "num ":
-        varValue = math(symbolTable, line) if len(lineSplit) > 1 else 0 
+    # Perform math and save value
+    if '=' in line:
+        outputString += math(symbolTable, lineSplit[1])
 
     # No variable name is same as a keyword
     if isKeyword(varName):
-        raise SyntaxError(inputString + " is a reserved keyword. Please use something else.")
+        raise SyntaxError(f"{varName} is a reserved keyword. Please use something else.")
 
     # No two vars initialized use same name
     elif isInit and varName in symbolTable:
-        raise SyntaxError(varName + ' was already declared. ')
+        raise SyntaxError(f'{varName} was already declared. ')
+    
+    elif isInit:
+        # Keep track of vars types
+        symbolTable.update({varName: varType})
 
-    # Keep track of vars types
-    symbolTable.update({varName: varValue}) # TODO: Maybe change this to be the address?
+    else:
+        # Save value back to memory
+        outputString += f'mov [{lineSplit[0]}], eax\n\n'
 
-    # TODO: return the asm equivelent
-    # read any values from memory needed
-    # preform any math operands needed
-    # save back to memory
-
-
-    # TODO: if isInit, then output extra asm in data section
-    return 'save\n'
+    return outputString
 
 
 # returns the result of an arithmetic sequence
-def math(symbolTable, line):
-    # Example Input => 1+(3*1+4) => math(1 + math(math(3 * 1) + 4) )
-    # Example Input => 3*(2+3)*3 => math(3 * math (2 + 3) * 3)
-    # Example Input => 3*(2+(3-4)-2) => 3 * math(2+(3-4)-2) => 2 + math((3-4)-2) => math(3-4) - 2 => 3-4
-
-    # TODO: outputString for this section?
-
+def math(symbolTable, line, reg = 'eax'):
+    outputString = ""
     # Arithmetic - Check for highest PEMDAS operator
     # Parenthesis - Not needed to support in this version
 
     # Exponent
     if '^' in line:
-        mathCheckLine('^', symbolTable, line)
+        mathLine = line.split('^')
+        outputString += f'mov eax, {mathLine[0]}\n'
+
+        for i in range(0, int(mathLine[1])):
+            outputString += mathCheckLine('^', symbolTable, line)
 
     # Multiplication
-    if '*' in line:
-        mathCheckLine('*', symbolTable, line)
+    elif '*' in line:
+        outputString += mathCheckLine('*', symbolTable, line)
 
     # Division - Not needed to support in this version
 
     # Addition
-    if '+' in line:
-        mathCheckLine('+', symbolTable, line)
+    elif '+' in line:
+        outputString += mathCheckLine('+', symbolTable, line)
 
     # Subtraction
-    if '-' in line:
-        mathCheckLine('-', symbolTable, line)
+    elif '-' in line:
+        outputString += mathCheckLine('-', symbolTable, line)
 
     # Default if none are found, return the value if found in symbolTable
-    if line in symbolTable:
-        # TODO: asm to put value from memory into register, then return the register with asm?
+    elif line in symbolTable:
+        # Store variable into ebx register
+        outputString += f"mov {reg}, [{line}]\n"
+        
+    elif isDigit(line):
+        outputString += f"mov {reg}, {line}\n"
+
     else:
         # Error is produced if var is used before it is declared
-        raise SyntaxError(line + ' was not declared.')
+        raise SyntaxError(f'{line} was not declared.')
 
-    return 'math\n'
+    return outputString
 
 
-# Writes to console
+# Write Statement - Writes to console
 def write(symbolTable, line):
-    # Write Statement
+    outputString = ''
+    line = getLine(line).replace("write ", "")
+
+    # Write out a number
+    if isDigit(line):
+        outputString = f'push %rbx\nlea  intFormat(%rip), %rdi\nmov  $1, {line}\nxor %eax, %eax\ncall printf\npop %rbx\n\n'
+    
+    # Write out a variable
+    elif line in symbolTable: # TODO: make work for other types of vars
+        outputString = f'push %rbx\nlea  intFormat(%rip), %rdi\nmov  $1, [{line}]\nxor %eax, %eax\ncall printf\npop %rbx\n\n'
+    
+    # Write out a string
+    else:
+        line.replace("\"", "")
+        outputString = f'push %rbx\nlea  stringFormat(%rip), %rdi\nmov  $1, [{line}]\nxor %eax, %eax\ncall printf\npop %rbx\n\n'
+
         # <EXP> part it optional
-        # Write out a number
-        # Write out a string
-        # After each write statement is always a new line
-    return 'write\n'
+    return outputString
+
+
+# Returns the data section for the beginning of the file
+def getDataSection(symbolTable):
+    # After each write statement is always a new line
+    outputString = 'extern printf\n\nsection .data\nstringFormat: .asciz "%s\\n"\nintFormat: .asciz "%d\\n"\n'
+
+    for var in symbolTable:
+        outputString += f'{var}: dd 0\n'
+
+    return outputString
 
 
 # Accept command line arguments
@@ -174,8 +233,9 @@ lineNumber = 0
 try:
     # Error is produced if file does not exist
     if exists(filePath) == False:
-        raise FileNotFoundError(filePath + ' was not found. Please enter a valid path')
+        raise FileNotFoundError(f'{filePath} was not found. Please enter a valid path')
     else:
+        pass
         # Creates xxx.asm and xxx.err if file exists
         open(getNewFilePath(filePath, '.asm'), 'w').close()
         open(getNewFilePath(filePath, '.err'), 'w').close()
@@ -188,7 +248,7 @@ try:
         
         command = ''
         foundCommand = False
-        lineNumber = lineNumber + 1
+        lineNumber += 1
 
         for char in line:
 
@@ -215,7 +275,7 @@ try:
                 continue
 
             # Handle Boilerplate
-            elif command == 'program':
+            elif command == 'program ':
                 foundCommand = True
                 # TODO: add in program name for output file names
             elif command == 'begin':
@@ -238,10 +298,14 @@ try:
             
             if foundCommand:
                 break
-         
+
+    outputStringHeader = getDataSection(symbolTable)
+    outputString = f'{outputStringHeader}\nsection .text\n{outputString}'
+    
     # Output asm to xxx.asm
     file = open(getNewFilePath(filePath, '.asm'), 'w')
     file.write(outputString)
+    file.close()
 
 
 # Output and errors to xxx.err and stop program # Always create even if empty # Only create one file (xxx.err) if we cannot determine input program name
