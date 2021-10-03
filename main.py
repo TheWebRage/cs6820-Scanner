@@ -204,19 +204,57 @@ def write(symbolTable, line):
     # Write out a string
     else:
         line.replace("\"", "")
-        outputString = f'push %rbx\nlea  stringFormat(%rip), %rdi\nmov  $1, [{line}]\nxor %eax, %eax\ncall printf\npop %rbx\n\n'
+
+        for i in range(0, len(line))[::4]: # TODO: finish this print stuff
+            outputString = f"""mov  ecx, "{line}" 
+                                mov  [stringBuffer + {i}], ecx
+                                call _printString"""
+
+    outputString += """mov  ecx, 0xA 
+                        mov  [stringBuffer], ecx
+                        call _printString"""
 
         # <EXP> part it optional
     return outputString
 
 
 # Returns the data section for the beginning of the file
-def getDataSection(symbolTable):
+def getTopSection(symbolTable):
     # After each write statement is always a new line
     outputString = 'extern printf\n\nsection .data\nstringFormat: .asciz "%s\\n"\nintFormat: .asciz "%d\\n"\n'
 
     for var in symbolTable:
         outputString += f'{var}: dd 0\n'
+
+    outputString += """global _start
+
+                    sys_exit        equ     1
+                    sys_write       equ     4
+                    stdout          equ     1
+
+                    section .text
+
+                    _printString: 
+                    ; calculate the length of string
+                        mov     rdi, stringBuffer   ; stringBuffer to destination index
+                        xor     rcx, rcx            ; zero rcx
+                        not     rcx                 ; set rcx = -1
+                        xor     al,al               ; zero the al register (initialize to NUL)
+                        cld                         ; clear the direction flag
+                        repnz   scasb               ; get the string length (dec rcx through NUL)
+                        not     rcx                 ; rev all bits of negative results in absolute value
+                        dec     rcx                 ; -1 to skip the null-terminator, rcx contains length
+                        mov     rdx, rcx            ; put length in rdx
+
+                    ; write string to stdout
+                        mov     rsi, stringBuffer   ; stringBuffer to source index
+                        mov     rax, 1              ; set write to command
+                        mov     rdi,rax             ; set destination index to rax (stdout)
+                        syscall                     ; call kernel
+
+                        ret
+                        
+                    _start:\n"""
 
     return outputString
 
@@ -300,7 +338,7 @@ try:
                 break
 
     outputStringHeader = getDataSection(symbolTable)
-    outputString = f'{outputStringHeader}\nsection .text\n{outputString}'
+    outputString = f'{outputStringHeader}\n{outputString}'
     
     # Output asm to xxx.asm
     file = open(getNewFilePath(filePath, '.asm'), 'w')
