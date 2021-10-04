@@ -135,8 +135,8 @@ def saveVarIntoTable(symbolTable, line, varType = ""):
         raise SyntaxError(f'{varName} was already declared. ')
     
     elif isInit:
-        # Keep track of vars types
-        symbolTable.update({varName: varType})
+        # Keep track of vars names in asm
+        symbolTable.update({varName: f'var{len(symbolTable)}_{varName}'})
 
     else:
         # Save value back to memory
@@ -176,7 +176,7 @@ def math(symbolTable, line, reg = 'eax'):
     # Default if none are found, return the value if found in symbolTable
     elif line in symbolTable:
         # Store variable into ebx register
-        outputString += f"mov {reg}, [{line}]\n"
+        outputString += f"mov {reg}, [{symbolTable[line]}]\n"
         
     elif isDigit(line):
         outputString += f"mov {reg}, {line}\n"
@@ -188,31 +188,50 @@ def math(symbolTable, line, reg = 'eax'):
     return outputString
 
 
+# Returns the asm for a print string (Includes splitting the string into sections of 4 chars)
+def asmSplitAndPrintString(line):
+    outputString = ''
+
+    for i in range(0, len(line))[::4]:          
+        sectionsOfFour = ''
+
+        for j in range(0, 4):
+            if (i + j <len(line)):
+                sectionsOfFour += line[i + j]
+
+        outputString += asmPrintToConsole(sectionsOfFour, offset = i)
+
+    return outputString
+
+
+# Returns the asm for a print to console command
+def asmPrintToConsole(stringToConsole, offset = 0, isLabel = False):
+    if isLabel:
+        return f"""mov  ecx, [{stringToConsole}] 
+               mov  [stringBuffer + {offset}], ecx
+               call _printString"""
+
+    return f"""mov  ecx, "{stringToConsole}" 
+               mov  [stringBuffer + {offset}], ecx
+               call _printString"""
+
+
 # Write Statement - Writes to console
 def write(symbolTable, line):
     outputString = ''
     line = getLine(line).replace("write ", "")
 
-    # Write out a number
-    if isDigit(line):
-        outputString = f'push %rbx\nlea  intFormat(%rip), %rdi\nmov  $1, {line}\nxor %eax, %eax\ncall printf\npop %rbx\n\n'
-    
-    # Write out a variable
-    elif line in symbolTable: # TODO: make work for other types of vars
-        outputString = f'push %rbx\nlea  intFormat(%rip), %rdi\nmov  $1, [{line}]\nxor %eax, %eax\ncall printf\npop %rbx\n\n'
+    # Write out a number or variable
+    if isDigit(line) or line in symbolTable:
+        outputString += asmPrintToConsole(symbolTable[line], isLabel = line in symbolTable)
     
     # Write out a string
     else:
         line.replace("\"", "")
+        asmSplitAndPrintString(line) # TODO: check to make sure this works
 
-        for i in range(0, len(line))[::4]: # TODO: finish this print stuff
-            outputString = f"""mov  ecx, "{line}" 
-                                mov  [stringBuffer + {i}], ecx
-                                call _printString"""
-
-    outputString += """mov  ecx, 0xA 
-                        mov  [stringBuffer], ecx
-                        call _printString"""
+    # Prints a new line
+    outputString += asmPrintToConsole('0xA')
 
         # <EXP> part it optional
     return outputString
@@ -224,7 +243,7 @@ def getTopSection(symbolTable):
     outputString = 'extern printf\n\nsection .data\nstringFormat: .asciz "%s\\n"\nintFormat: .asciz "%d\\n"\n'
 
     for var in symbolTable:
-        outputString += f'{var}: dd 0\n'
+        outputString += f'{symbolTable[var]}: db 0\n'
 
     outputString += """global _start
 
@@ -301,14 +320,11 @@ try:
             # Ignore comments / Both '//' and '/* */'
             if isComment and command == '*/':
                 isComment = False
-
             elif command == '//':
                 break
-
             elif command == '/*':
                 isComment = True
                 break
-
             if isComment:
                 continue
 
@@ -337,7 +353,7 @@ try:
             if foundCommand:
                 break
 
-    outputStringHeader = getDataSection(symbolTable)
+    outputStringHeader = getTopSection(symbolTable)
     outputString = f'{outputStringHeader}\n{outputString}'
     
     # Output asm to xxx.asm
