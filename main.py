@@ -140,7 +140,7 @@ def saveVarIntoTable(symbolTable, line, varType = ""):
 
     else:
         # Save value back to memory
-        outputString += f'mov [{lineSplit[0]}], eax\n\n'
+        outputString += f'mov [{symbolTable[lineSplit[0]]}], eax\n\n'
 
     return outputString
 
@@ -196,7 +196,7 @@ def asmSplitAndPrintString(line):
         sectionsOfFour = ''
 
         for j in range(0, 4):
-            if (i + j <len(line)):
+            if (i + j < len(line)):
                 sectionsOfFour += line[i + j]
 
         outputString += asmPrintToConsole(sectionsOfFour, offset = i)
@@ -206,14 +206,19 @@ def asmSplitAndPrintString(line):
 
 # Returns the asm for a print to console command
 def asmPrintToConsole(stringToConsole, offset = 0, isLabel = False):
+    if stringToConsole == '0xA': # Add digit support here
+        return f"""mov  ecx, {stringToConsole} 
+               mov  [stringBuffer + {offset}], ecx
+               call _printString\n\n"""
+
     if isLabel:
         return f"""mov  ecx, [{stringToConsole}] 
                mov  [stringBuffer + {offset}], ecx
-               call _printString"""
+               call _printString\n\n"""
 
     return f"""mov  ecx, "{stringToConsole}" 
                mov  [stringBuffer + {offset}], ecx
-               call _printString"""
+               call _printString\n\n"""
 
 
 # Write Statement - Writes to console
@@ -240,7 +245,7 @@ def write(symbolTable, line):
 # Returns the data section for the beginning of the file
 def getTopSection(symbolTable):
     # After each write statement is always a new line
-    outputString = 'extern printf\n\nsection .data\nstringFormat: .asciz "%s\\n"\nintFormat: .asciz "%d\\n"\n'
+    outputString = 'extern printf\n\nsection .data\nstringBuffer: db 0\n'
 
     for var in symbolTable:
         outputString += f'{symbolTable[var]}: db 0\n'
@@ -354,7 +359,12 @@ try:
                 break
 
     outputStringHeader = getTopSection(symbolTable)
-    outputString = f'{outputStringHeader}\n{outputString}'
+
+    endString = """mov       rax, 60                 ; system call for exit
+          xor       rdi, rdi                ; exit code 0
+          syscall                           ; invoke operating system to exit\n\n"""
+
+    outputString = f'{outputStringHeader}\n{outputString}\n{endString}'
     
     # Output asm to xxx.asm
     file = open(getNewFilePath(filePath, '.asm'), 'w')
