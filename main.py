@@ -89,12 +89,16 @@ def mathCheckLine(operand, symbolTable, line):
     lineSplit = line.split(operand)
 
     # read any values from memory needed # Use math() again for this
+    outputString += math(symbolTable, lineSplit[0], 'rax')
+
     if operand == '^':
-        outputString += math(symbolTable, lineSplit[0], 'eax') # TODO: fix exponents
-    outputString += math(symbolTable, flatten(lineSplit[1], operand), 'ebx')
+        pass
+        # outputString += math(symbolTable, lineSplit[0], 'rbx')
+    else:
+        outputString += math(symbolTable, flatten(lineSplit[1], operand), 'rbx')
 
     # preform math operation
-    outputString += f'{operandToAsm(operand)} eax, ebx\n'
+    outputString += f'{operandToAsm(operand)} rax, rbx\n'
 
     # save value of register into memory address
 
@@ -122,10 +126,6 @@ def saveVarIntoTable(symbolTable, line, varType = ""):
 
     varName = lineSplit[0]
 
-    # Perform math and save value
-    if '=' in line:
-        outputString += math(symbolTable, lineSplit[1])
-
     # No variable name is same as a keyword
     if isKeyword(varName):
         raise SyntaxError(f"{varName} is a reserved keyword. Please use something else.")
@@ -138,15 +138,20 @@ def saveVarIntoTable(symbolTable, line, varType = ""):
         # Keep track of vars names in asm
         symbolTable.update({varName: f'var{len(symbolTable)}_{varName}'})
 
-    else:
+    elif '=' not in line:
         # Save value back to memory
-        outputString += f'mov [{symbolTable[lineSplit[0]]}], eax\n\n'
+        outputString += f'mov [{symbolTable[lineSplit[0]]}], rax\n'
+
+    # Perform math and save value
+    if '=' in line:
+        outputString += math(symbolTable, lineSplit[1])
+        outputString += f'mov [{symbolTable[lineSplit[0]]}], rax\n\n'
 
     return outputString
 
 
 # returns the result of an arithmetic sequence
-def math(symbolTable, line, reg = 'eax'):
+def math(symbolTable, line, reg = 'rax'):
     outputString = ""
     # Arithmetic - Check for highest PEMDAS operator
     # Parenthesis - Not needed to support in this version
@@ -154,10 +159,11 @@ def math(symbolTable, line, reg = 'eax'):
     # Exponent
     if '^' in line:
         mathLine = line.split('^')
-        outputString += f'mov eax, {mathLine[0]}\n'
+        outputString += f'mov rax, {mathLine[0]}\n'
+        outputString += f'mov rbx, {mathLine[0]}\n'
 
         for i in range(0, int(mathLine[1])):
-            outputString += mathCheckLine('^', symbolTable, line)
+            outputString += f'imul rax, rbx\n'
 
     # Multiplication
     elif '*' in line:
@@ -175,7 +181,7 @@ def math(symbolTable, line, reg = 'eax'):
 
     # Default if none are found, return the value if found in symbolTable
     elif line in symbolTable:
-        # Store variable into ebx register
+        # Store variable into rbx register
         outputString += f"mov {reg}, [{symbolTable[line]}]\n"
         
     elif isDigit(line):
@@ -191,6 +197,7 @@ def math(symbolTable, line, reg = 'eax'):
 # Returns the asm for a print string (Includes splitting the string into sections of 4 chars)
 def asmSplitAndPrintString(line):
     outputString = ''
+    line = line.replace("\"", "")
 
     for i in range(0, len(line))[::4]:          
         sectionsOfFour = ''
@@ -201,24 +208,30 @@ def asmSplitAndPrintString(line):
 
         outputString += asmPrintToConsole(sectionsOfFour, offset = i)
 
-    return outputString
+    return outputString + "call _printString\n\n\n"
 
 
 # Returns the asm for a print to console command
 def asmPrintToConsole(stringToConsole, offset = 0, isLabel = False):
-    if stringToConsole == '0xA': # Add digit support here
-        return f"""mov  ecx, {stringToConsole} 
-               mov  [stringBuffer + {offset}], ecx
-               call _printString\n\n"""
+    if isDigit(stringToConsole):# Add digit support here
+        return f"""mov  rcx, {stringToConsole} 
+add rcx, 0x30
+mov  [stringBuffer + {offset}], rcx
+call _printString\n\n"""
+
+    if stringToConsole == '0xA':
+        return f"""mov  rcx, {stringToConsole} 
+mov  [stringBuffer + {offset}], rcx
+call _printString\n\n"""
 
     if isLabel:
-        return f"""mov  ecx, [{stringToConsole}] 
-               mov  [stringBuffer + {offset}], ecx
-               call _printString\n\n"""
+        return f"""mov  rcx, [{stringToConsole}] 
+add rcx, 0x30
+mov  [stringBuffer + {offset}], rcx
+call _printString\n\n"""
 
-    return f"""mov  ecx, "{stringToConsole}" 
-               mov  [stringBuffer + {offset}], ecx
-               call _printString\n\n"""
+    return f"""mov  rcx, "{stringToConsole}" 
+mov  [stringBuffer + {offset}], rcx\n"""
 
 
 # Write Statement - Writes to console
@@ -233,7 +246,7 @@ def write(symbolTable, line):
     # Write out a string
     else:
         line.replace("\"", "")
-        asmSplitAndPrintString(line) # TODO: check to make sure this works
+        outputString += asmSplitAndPrintString(line) # TODO: check to make sure this works
 
     # Prints a new line
     outputString += asmPrintToConsole('0xA')
@@ -245,40 +258,50 @@ def write(symbolTable, line):
 # Returns the data section for the beginning of the file
 def getTopSection(symbolTable):
     # After each write statement is always a new line
-    outputString = 'extern printf\n\nsection .data\nstringBuffer: db 0\n'
+    outputString = 'section .data\n\n    stringBuffer: db 0\n'
 
     for var in symbolTable:
-        outputString += f'{symbolTable[var]}: db 0\n'
+        outputString += f'    {symbolTable[var]}: db 0\n'
 
-    outputString += """global _start
+    outputString += """
+section .text
 
-                    sys_exit        equ     1
-                    sys_write       equ     4
-                    stdout          equ     1
+global _start
 
-                    section .text
+_printString: 
+; calculate the length of string
+    mov     rdi, stringBuffer   ; stringBuffer to destination index
+    xor     rcx, rcx            ; zero rcx
+    not     rcx                 ; set rcx = -1
+    xor     al,al               ; zero the al register (initialize to NUL)
+    cld                         ; clear the direction flag
+    repnz   scasb               ; get the string length (dec rcx through NUL)
+    not     rcx                 ; rev all bits of negative results in absolute value
+    dec     rcx                 ; -1 to skip the null-terminator, rcx contains length
+    mov     rdx, rcx            ; put length in rdx
 
-                    _printString: 
-                    ; calculate the length of string
-                        mov     rdi, stringBuffer   ; stringBuffer to destination index
-                        xor     rcx, rcx            ; zero rcx
-                        not     rcx                 ; set rcx = -1
-                        xor     al,al               ; zero the al register (initialize to NUL)
-                        cld                         ; clear the direction flag
-                        repnz   scasb               ; get the string length (dec rcx through NUL)
-                        not     rcx                 ; rev all bits of negative results in absolute value
-                        dec     rcx                 ; -1 to skip the null-terminator, rcx contains length
-                        mov     rdx, rcx            ; put length in rdx
+; write string to stdout
+    mov     rsi, stringBuffer   ; stringBuffer to source index
+    mov     rax, 1              ; set write to command
+    mov     rdi,rax             ; set destination index to rax (stdout)
+    syscall                     ; call kernel
 
-                    ; write string to stdout
-                        mov     rsi, stringBuffer   ; stringBuffer to source index
-                        mov     rax, 1              ; set write to command
-                        mov     rdi,rax             ; set destination index to rax (stdout)
-                        syscall                     ; call kernel
+    ret
 
-                        ret
-                        
-                    _start:\n"""
+_printInt: 
+    mov  ecx, [stringBuffer]    ; Number 1
+    add  ecx, 0x30              ; Add 30 hex for ascii
+    mov  [stringBuffer], ecx    ; Save number in buffer
+    mov  ecx, stringBuffer      ; Store address of stringBuffer in ecx
+
+    mov  eax, 1                 ; sys_write
+    mov  ebx, 1                 ; to STDOUT
+    mov  edx, 1                 ; length = one byte
+    int  0x80                   ; Call the kernel
+
+    ret
+    
+_start:\n"""
 
     return outputString
 
@@ -349,10 +372,12 @@ try:
             # Save asm to output
             elif command == 'num ' or '=' in command:
                 foundCommand = True
+                outputString += f';{line}'
                 outputString += saveVarIntoTable(symbolTable, line, command)
 
             elif command == 'write':
                 foundCommand = True
+                outputString += f';{line}'
                 outputString += write(symbolTable, line)
             
             if foundCommand:
@@ -361,8 +386,8 @@ try:
     outputStringHeader = getTopSection(symbolTable)
 
     endString = """mov       rax, 60                 ; system call for exit
-          xor       rdi, rdi                ; exit code 0
-          syscall                           ; invoke operating system to exit\n\n"""
+xor       rdi, rdi                ; exit code 0
+syscall                           ; invoke operating system to exit\n\n"""
 
     outputString = f'{outputStringHeader}\n{outputString}\n{endString}'
     

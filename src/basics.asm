@@ -1,119 +1,151 @@
-extern printf
-
 section .data
-stringBuffer: dd ""
-var0_num1: dd 0
-var1_num2: dd 0
-var2_num3: dd 0
+
+    stringBuffer: db 0
+    var0_num1: db 0
+    var1_num2: db 0
+    var2_num3: db 0
+
+section .text
+
 global _start
 
-                    sys_exit        equ     1
-                    sys_write       equ     4
-                    stdout          equ     1
+_printString: 
+; calculate the length of string
+    mov     rdi, stringBuffer   ; stringBuffer to destination index
+    xor     rcx, rcx            ; zero rcx
+    not     rcx                 ; set rcx = -1
+    xor     al,al               ; zero the al register (initialize to NUL)
+    cld                         ; clear the direction flag
+    repnz   scasb               ; get the string length (dec rcx through NUL)
+    not     rcx                 ; rev all bits of negative results in absolute value
+    dec     rcx                 ; -1 to skip the null-terminator, rcx contains length
+    mov     rdx, rcx            ; put length in rdx
 
-                    section .text
+; write string to stdout
+    mov     rsi, stringBuffer   ; stringBuffer to source index
+    mov     rax, 1              ; set write to command
+    mov     rdi,rax             ; set destination index to rax (stdout)
+    syscall                     ; call kernel
 
-                    _printString: 
-                    ; calculate the length of string
-                        mov     rdi, stringBuffer   ; stringBuffer to destination index
-                        xor     rcx, rcx            ; zero rcx
-                        not     rcx                 ; set rcx = -1
-                        xor     al,al               ; zero the al register (initialize to NUL)
-                        cld                         ; clear the direction flag
-                        repnz   scasb               ; get the string length (dec rcx through NUL)
-                        not     rcx                 ; rev all bits of negative results in absolute value
-                        dec     rcx                 ; -1 to skip the null-terminator, rcx contains length
-                        mov     rdx, rcx            ; put length in rdx
+    ret
 
-                    ; write string to stdout
-                        mov     rsi, stringBuffer   ; stringBuffer to source index
-                        mov     rax, 1              ; set write to command
-                        mov     rdi,rax             ; set destination index to rax (stdout)
-                        syscall                     ; call kernel
+_printInt: 
+    mov  ecx, [stringBuffer]    ; Number 1
+    add  ecx, 0x30              ; Add 30 hex for ascii
+    mov  [stringBuffer], ecx    ; Save number in buffer
+    mov  ecx, stringBuffer      ; Store address of stringBuffer in ecx
 
-                        ret
-                        
-                    _start:
+    mov  eax, 1                 ; sys_write
+    mov  ebx, 1                 ; to STDOUT
+    mov  edx, 1                 ; length = one byte
+    int  0x80                   ; Call the kernel
 
-mov eax, 3
-mov eax, [var1_num2]
-mov ebx, 10
-add eax, ebx
-mov [var2_num3], eax
+    ret
+    
+_start:
 
-mov ebx, [var1_num2]
-add eax, ebx
-mov [var1_num2], eax
+;		num num1;
+;		num num2 = 3;
+mov rax, 3
+mov [var1_num2], rax
 
-mov ebx, 5
-imul eax, ebx
-mov [var0_num1], eax
+;		num num3 = num2;
+mov rax, [var1_num2]
+mov [var2_num3], rax
 
-mov ebx, [var1_num2]
-imul eax, ebx
-mov [var0_num1], eax
+;		num3 = num3 + 10;
+mov rax, [var2_num3]
+mov rbx, 10
+add rax, rbx
+mov [var2_num3], rax
 
-mov ebx, 5
-sub eax, ebx
-mov [var1_num2], eax
+;		num2 = num3 + num2;
+mov rax, [var2_num3]
+mov rbx, [var1_num2]
+add rax, rbx
+mov [var1_num2], rax
 
-mov ebx, 5
-sub eax, ebx
-mov [var1_num2], eax
+;		num1 = 2 * 5;
+mov rax, 2
+mov rbx, 5
+imul rax, rbx
+mov [var0_num1], rax
 
-mov eax, 8
-mov eax, 8
-mov ebx, 6
-imul eax, ebx
-mov eax, 8
-mov ebx, 6
-imul eax, ebx
-mov eax, 8
-mov ebx, 6
-imul eax, ebx
-mov eax, 8
-mov ebx, 6
-imul eax, ebx
-mov eax, 8
-mov ebx, 6
-imul eax, ebx
-mov eax, 8
-mov ebx, 6
-imul eax, ebx
-mov [var2_num3], eax
+;		num1 = num3 * num2;
+mov rax, [var2_num3]
+mov rbx, [var1_num2]
+imul rax, rbx
+mov [var0_num1], rax
 
-mov [var0_num1], 31
+;		num2 = 8 - 5; //subtracting is fun!
+mov rax, 8
+mov rbx, 5
+sub rax, rbx
+mov [var1_num2], rax
 
-mov  ecx, 0xA 
-               mov  [stringBuffer + 0], ecx
-               call _printString
+;		num2=8- 5;
+mov rax, 8
+mov rbx, 5
+sub rax, rbx
+mov [var1_num2], rax
 
-mov  ecx, [var0_num1] 
-               mov  [stringBuffer + 0], ecx
-               call _printString
+;		num3 = 8 ^ 6;
+mov rax, 8
+mov rbx, 8
+imul rax, rbx
+imul rax, rbx
+imul rax, rbx
+imul rax, rbx
+imul rax, rbx
+imul rax, rbx
+mov [var2_num3], rax
 
-mov  ecx, 0xA 
-               mov  [stringBuffer + 0], ecx
-               call _printString
+;		write "Basics.txt:";
+mov  rcx, "Basi" 
+mov  [stringBuffer + 0], rcx
+mov  rcx, "cs.t" 
+mov  [stringBuffer + 4], rcx
+mov  rcx, "xt:" 
+mov  [stringBuffer + 8], rcx
+call _printString
 
-mov  ecx, [var1_num2] 
-               mov  [stringBuffer + 0], ecx
-               call _printString
 
-mov  ecx, 0xA 
-               mov  [stringBuffer + 0], ecx
-               call _printString
+mov  rcx, 0xA 
+mov  [stringBuffer + 0], rcx
+call _printString
 
-mov  ecx, [var2_num3] 
-               mov  [stringBuffer + 0], ecx
-               call _printString
+;		write num1;
+mov  rcx, [var0_num1] 
+add rcx, 0x30
+mov  [stringBuffer + 0], rcx
+call _printString
 
-mov  ecx, 0xA 
-               mov  [stringBuffer + 0], ecx
-               call _printString
+mov  rcx, 0xA 
+mov  [stringBuffer + 0], rcx
+call _printString
+
+;		write num2;
+mov  rcx, [var1_num2] 
+add rcx, 0x30
+mov  [stringBuffer + 0], rcx
+call _printString
+
+mov  rcx, 0xA 
+mov  [stringBuffer + 0], rcx
+call _printString
+
+;		write num3;	
+mov  rcx, [var2_num3] 
+add rcx, 0x30
+mov  [stringBuffer + 0], rcx
+call _printString
+
+mov  rcx, 0xA 
+mov  [stringBuffer + 0], rcx
+call _printString
 
 
 mov       rax, 60                 ; system call for exit
-          xor       rdi, rdi                ; exit code 0
-          syscall                           ; invoke operating system to exit
+xor       rdi, rdi                ; exit code 0
+syscall                           ; invoke operating system to exit
 
