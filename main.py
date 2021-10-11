@@ -1,5 +1,7 @@
 from os.path import exists
+import sys
 
+immediateName = 0
 
 # Returns a string from the combined elements in a list
 def flatten(listObject, seperator = ""):
@@ -30,15 +32,19 @@ def getLine(line):
     return command
 
 
+# Returns the folder path of the file
+def getFolderPath(filePath):
+    splitFile = filePath.split('/')
+    return flatten(splitFile[:-1], '/')
+
 # Returns a new file path with the extension passed in
 def getNewFilePath(filePath, extension):
     splitFile = filePath.split('/')
-    folderPath = flatten(splitFile[:-1], '/') # TODO: check length before taking off extension?
-    return folderPath + splitFile[-1].split('.')[0] + extension
+    return getFolderPath(filePath) + splitFile[-1].split('.')[0] + extension
 
 
 # Logs the error in xxx.err and in the console
-def logError(errorString, filePath, lineNumber):
+def logError(errorString, outputFile, lineNumber):
     errorString += f"ERROR: Line {str(lineNumber)} - {errorString}"
 
     # Printing error to console would be nice too
@@ -46,7 +52,7 @@ def logError(errorString, filePath, lineNumber):
     
     # Errors print to xxx.err and say something like 'Error: There was as error on line x'
         # If error is produced ignore anything in xxx.asm file
-    file = open(getNewFilePath(filePath, '.err'), 'w')
+    file = open(getNewFilePath(outputFile, '.err'), 'w')
     file.write(errorString)
 
 
@@ -79,7 +85,7 @@ def operandToAsm(operand):
     if operand == "*":
         return 'imul'
     if operand == "^":
-        return 'imul' # TODO: make this a looped muli command
+        return 'imul'
 
 
 # Checks the line for a math operand passed in and preforms correct logic, including call math recursively
@@ -89,16 +95,17 @@ def mathCheckLine(operand, symbolTable, line):
     lineSplit = line.split(operand)
 
     # read any values from memory needed # Use math() again for this
-    outputString += math(symbolTable, lineSplit[0], 'rax')
+    outputString += math(symbolTable, lineSplit[0], 'r8')
 
     if operand == '^':
         pass
         # outputString += math(symbolTable, lineSplit[0], 'rbx')
     else:
-        outputString += math(symbolTable, flatten(lineSplit[1], operand), 'rbx')
+        outputString += math(symbolTable, flatten(lineSplit[1], operand), 'r9')
 
     # preform math operation
-    outputString += f'{operandToAsm(operand)} rax, rbx\n'
+    outputString += f'{operandToAsm(operand)} r8, r9\n'
+    outputString += f'mov rax, r8\n'
 
     # save value of register into memory address
 
@@ -119,8 +126,6 @@ def saveVarIntoTable(symbolTable, line, varType = ""):
     if isInit:
         line = line.replace(varType, "")
 
-    # TODO: maybe save varType from symbolTable?
-
     line = line.replace(" ", "")
     lineSplit = line.split("=")
 
@@ -140,12 +145,12 @@ def saveVarIntoTable(symbolTable, line, varType = ""):
 
     elif '=' not in line:
         # Save value back to memory
-        outputString += f'mov [{symbolTable[lineSplit[0]]}], rax\n'
+        outputString += f'mov [qword {symbolTable[lineSplit[0]]}], rax\n'
 
     # Perform math and save value
     if '=' in line:
         outputString += math(symbolTable, lineSplit[1])
-        outputString += f'mov [{symbolTable[lineSplit[0]]}], rax\n\n'
+        outputString += f'mov [qword {symbolTable[lineSplit[0]]}], rax\n\n'
 
     return outputString
 
@@ -159,11 +164,30 @@ def math(symbolTable, line, reg = 'rax'):
     # Exponent
     if '^' in line:
         mathLine = line.split('^')
-        outputString += f'mov rax, {mathLine[0]}\n'
-        outputString += f'mov rbx, {mathLine[0]}\n'
 
-        for i in range(0, int(mathLine[1])):
-            outputString += f'imul rax, rbx\n'
+        if 'immediateName' not in globals():
+            global immediateName
+            immediateName = 0
+        else:
+            immediateName += 1
+
+        outputString += math(symbolTable, mathLine[1], reg = 'r9')
+        outputString += math(symbolTable, mathLine[0], reg = 'r8')
+
+        outputString += f"""xor     rdi, rdi
+mov     rax, 1
+mov     rdx, r9
+
+exp_start{immediateName}:
+cmp rdi, rdx
+jz exp_done{immediateName}
+imul rax, r8
+inc rdi
+jmp exp_start{immediateName}
+
+exp_done{immediateName}:
+"""
+
 
     # Multiplication
     elif '*' in line:
@@ -182,10 +206,12 @@ def math(symbolTable, line, reg = 'rax'):
     # Default if none are found, return the value if found in symbolTable
     elif line in symbolTable:
         # Store variable into rbx register
-        outputString += f"mov {reg}, [{symbolTable[line]}]\n"
+        outputString += f"mov rax, [qword {symbolTable[line]}]\n"
+        outputString += f'mov {reg}, rax\n'
         
     elif isDigit(line):
-        outputString += f"mov {reg}, {line}\n"
+        outputString += f"mov rax, {line}\n"
+        outputString += f'mov {reg}, rax\n'
 
     else:
         # Error is produced if var is used before it is declared
@@ -208,36 +234,27 @@ def asmSplitAndPrintString(line):
 
         outputString += asmPrintToConsole(sectionsOfFour, offset = i)
 
-    return outputString + "call _printString\n\n\n"
+    return outputString + "call printString\n\n\n"
 
 
 # Returns the asm for a print to console command
 def asmPrintToConsole(stringToConsole, offset = 0, isLabel = False):
     if isDigit(stringToConsole):# Add digit support here
-        return f"""mov  rcx, {stringToConsole} 
-add rcx, 0x30
-mov  [stringBuffer + {offset}], rcx
-call _printString\n\n"""
-
-    if stringToConsole == '0xA':
-        return f"""mov  rcx, {stringToConsole} 
-mov  [stringBuffer + {offset}], rcx
-call _printString\n\n"""
+        return f"""mov  rax, {stringToConsole} 
+call printInt\n\n"""
 
     if isLabel:
-        return f"""mov  rcx, [{stringToConsole}] 
-add rcx, 0x30
-mov  [stringBuffer + {offset}], rcx
-call _printString\n\n"""
+        return f"""mov  rax, [qword {stringToConsole}] 
+call printInt\n\n"""
 
-    return f"""mov  rcx, "{stringToConsole}" 
-mov  [stringBuffer + {offset}], rcx\n"""
+    return f"""mov  rax, [{stringToConsole}]
+call printString\n\n"""
 
 
 # Write Statement - Writes to console
-def write(symbolTable, line):
+def write(symbolTable, stringValues, line):
     outputString = ''
-    line = getLine(line).replace("write ", "")
+    line = getLine(line).replace("write ", "").strip()
 
     # Write out a number or variable
     if isDigit(line) or line in symbolTable:
@@ -245,88 +262,107 @@ def write(symbolTable, line):
     
     # Write out a string
     else:
-        line.replace("\"", "")
-        outputString += asmSplitAndPrintString(line) # TODO: check to make sure this works
-
-    # Prints a new line
-    outputString += asmPrintToConsole('0xA')
-
+        consoleString = line.replace("\"", '')
+        stringValues[consoleString] = f'string{len(stringValues)}'
+        outputString += asmPrintToConsole(stringValues[consoleString])
+    
         # <EXP> part it optional
     return outputString
 
 
 # Returns the data section for the beginning of the file
-def getTopSection(symbolTable):
+def getTopSection(symbolTable, stringValues):
     # After each write statement is always a new line
-    outputString = 'section .data\n\n    stringBuffer: db 0\n'
+    outputString = """;-----------------------------
+; exports
+;-----------------------------
+GLOBAL main
 
+;-----------------------------
+; imports
+;-----------------------------
+extern printf
+
+;-----------------------------
+; initialized data
+;-----------------------------
+section .data
+"""
+
+    outputString += f'\n    ; Variable Values\n'
     for var in symbolTable:
-        outputString += f'    {symbolTable[var]}: db 0\n'
-
-    outputString += """
-section .text
-
-global _start
-
-_printString: 
-; calculate the length of string
-    mov     rdi, stringBuffer   ; stringBuffer to destination index
-    xor     rcx, rcx            ; zero rcx
-    not     rcx                 ; set rcx = -1
-    xor     al,al               ; zero the al register (initialize to NUL)
-    cld                         ; clear the direction flag
-    repnz   scasb               ; get the string length (dec rcx through NUL)
-    not     rcx                 ; rev all bits of negative results in absolute value
-    dec     rcx                 ; -1 to skip the null-terminator, rcx contains length
-    mov     rdx, rcx            ; put length in rdx
-
-; write string to stdout
-    mov     rsi, stringBuffer   ; stringBuffer to source index
-    mov     rax, 1              ; set write to command
-    mov     rdi,rax             ; set destination index to rax (stdout)
-    syscall                     ; call kernel
-
-    ret
-
-_printInt: 
-    mov  ecx, [stringBuffer]    ; Number 1
-    add  ecx, 0x30              ; Add 30 hex for ascii
-    mov  [stringBuffer], ecx    ; Save number in buffer
-    mov  ecx, stringBuffer      ; Store address of stringBuffer in ecx
-
-    mov  eax, 1                 ; sys_write
-    mov  ebx, 1                 ; to STDOUT
-    mov  edx, 1                 ; length = one byte
-    int  0x80                   ; Call the kernel
-
-    ret
+        outputString += f'    {symbolTable[var]}: dq 0\n'
     
-_start:\n"""
+    outputString += f'\n    ; String Values\n'
+    for stringValue in stringValues:
+        outputString += f'    {stringValues[stringValue]}: dq "{stringValue}"\n'
+
+    outputString += f'\n    ; Formats\n'
+    outputString += """    stringBuffer   db "%s", 0xA, 0
+    intBuffer   db "%d", 0x0d, 0x0a, 0
+
+;-----------------------------
+; Code! (execution starts at main
+;-----------------------------
+section .text
+printInt:
+        ; We need to call printf, but we are using rax, rbx, and rcx.  printf
+        ; may destroy rax and rcx so we will save these before the call and
+        ; restore them afterwards.
+        push    rbp                     ; Avoid stack alignment isses
+        push    rax                     ; save rax and rcx
+        push    rcx
+
+        mov     rdi, intBuffer      ; set printf format parameter
+        mov     rsi, rax                ; set printf value paramete
+        xor     rax, rax                ; set rax to 0 (number of float/vector regs used is 0)
+
+        call    [rel printf wrt ..got]
+        pop     rcx                     ; restore rcx
+        pop     rax                     ; restore rax
+        pop     rbp                     ; Avoid stack alignment issues
+        ret
+
+printString: 
+        ; We need to call printf, but we are using rax, rbx, and rcx.  printf
+        ; may destroy rax and rcx so we will save these before the call and
+        ; restore them afterwards.
+        push    rbp                     ; Avoid stack alignment issues
+        push    rax                     ; save rax and rcx
+        push    rcx
+
+        mov     rdi, stringBuffer       ; set printf format parameter
+        mov     rsi, rax                ; set printf value paramete
+        xor     rax, rax                ; set rax to 0 (number of float/vector regs used is 0)
+
+        call    [rel printf wrt ..got]
+        pop     rcx                     ; restore rcx
+        pop     rax                     ; restore rax
+        pop     rbp                     ; Avoid stack alignment issues
+        ret
+
+
+main:\n"""
 
     return outputString
 
 
 # Accept command line arguments
-# TODO: add command line arguments
-filePath = './src/basics.txt' 
-# TODO: Use program name to create output files
+outputFile = sys.argv[1] 
+
 outputString = ''
 symbolTable = {}
+stringValues = {}
 isComment = False
 lineNumber = 0
 
 try:
     # Error is produced if file does not exist
-    if exists(filePath) == False:
-        raise FileNotFoundError(f'{filePath} was not found. Please enter a valid path')
-    else:
-        pass
-        # Creates xxx.asm and xxx.err if file exists
-        open(getNewFilePath(filePath, '.asm'), 'w').close()
-        open(getNewFilePath(filePath, '.err'), 'w').close()
+    if exists(outputFile) == False:
+        raise FileNotFoundError(f'{outputFile} was not found. Please enter a valid path')
 
     # Read in file into memory
-    file = open(filePath, 'r').readlines()
+    file = open(outputFile, 'r').readlines()
 
     # Scan over each line
     for line in file:
@@ -359,10 +395,9 @@ try:
             # Handle Boilerplate
             elif command == 'program ':
                 foundCommand = True
-                # TODO: add in program name for output file names
+                outputFile = getFolderPath(outputFile) + flatten(line.replace(command, '').replace(';', '').strip())
             elif command == 'begin':
                 foundCommand = True
-                # TODO: add in start block
             elif command == 'end':
                 foundCommand = True
                 # TODO: add in end block
@@ -378,12 +413,12 @@ try:
             elif command == 'write':
                 foundCommand = True
                 outputString += f';{line}'
-                outputString += write(symbolTable, line)
+                outputString += write(symbolTable, stringValues, line)
             
             if foundCommand:
                 break
 
-    outputStringHeader = getTopSection(symbolTable)
+    outputStringHeader = getTopSection(symbolTable, stringValues)
 
     endString = """mov       rax, 60                 ; system call for exit
 xor       rdi, rdi                ; exit code 0
@@ -392,11 +427,13 @@ syscall                           ; invoke operating system to exit\n\n"""
     outputString = f'{outputStringHeader}\n{outputString}\n{endString}'
     
     # Output asm to xxx.asm
-    file = open(getNewFilePath(filePath, '.asm'), 'w')
+    # Creates xxx.asm and xxx.err if file exists
+    open(getNewFilePath(outputFile, '.err'), 'w').close()
+    file = open(getNewFilePath(outputFile, '.asm'), 'w')
     file.write(outputString)
     file.close()
 
 
 # Output and errors to xxx.err and stop program # Always create even if empty # Only create one file (xxx.err) if we cannot determine input program name
 except Exception as error:
-    logError(repr(error), filePath, lineNumber)
+    logError(repr(error), outputFile, lineNumber)
