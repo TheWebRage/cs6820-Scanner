@@ -247,7 +247,7 @@ call printInt\n\n"""
         return f"""mov  rax, [qword {stringToConsole}] 
 call printInt\n\n"""
 
-    return f"""mov  rax, [{stringToConsole}]
+    return f"""mov  rax, {stringToConsole}
 call printString\n\n"""
 
 
